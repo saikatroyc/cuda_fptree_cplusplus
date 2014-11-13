@@ -14,7 +14,7 @@ using namespace std;
 bool pair_compare(const pair<short unsigned int, unsigned int>& p1,const pair<short unsigned int, unsigned int>& p2);
 int main(int argc, char* argv[])
 {
-    FILE *fp = fopen("topic-1.txt", "r");
+    FILE *fp = fopen("topic-0.txt", "r");
     if (fp == NULL){
         cout<<"Can't read file";
         exit(0);
@@ -93,7 +93,7 @@ int main(int argc, char* argv[])
         cout<<endl;
     }
     for (int i = 0; i <= num_transactions; i++) {
-       cout<<trans_offset[i]<<","; 
+       cout<<"(i,offset)"<<i<<","<<trans_offset[i]; 
     }
     #endif
 
@@ -107,7 +107,8 @@ int main(int argc, char* argv[])
 
     unsigned int *d_transactions;
     unsigned int *d_trans_offsets;
-    unsigned int *d_flist, *d_flist_key_16, *d_flist_key_16_index;
+    unsigned int *d_flist, *d_flist_key_16;
+    unsigned short *d_flist_key_16_index;
     cudaDeviceProp deviceProp;
     cudaError_t ret;
     cudaGetDeviceProperties(&deviceProp, 0);
@@ -120,7 +121,7 @@ int main(int argc, char* argv[])
 
     cuda_ret = cudaMalloc((void**)&d_transactions, num_items_in_transactions * sizeof(unsigned int));
     if(cuda_ret != cudaSuccess) FATAL("Unable to allocate device memory");
-    cuda_ret = cudaMalloc((void**)&d_trans_offsets, num_transactions * sizeof(unsigned int));
+    cuda_ret = cudaMalloc((void**)&d_trans_offsets, (num_transactions + 1) * sizeof(unsigned int));
     if(cuda_ret != cudaSuccess) FATAL("Unable to allocate device memory");
     cuda_ret = cudaMalloc((void**)&d_flist, max_unique_items * sizeof(unsigned int));
     if(cuda_ret != cudaSuccess) FATAL("Unable to allocate device memory");
@@ -136,7 +137,7 @@ int main(int argc, char* argv[])
         cudaMemcpyHostToDevice);
     if(cuda_ret != cudaSuccess) FATAL("Unable to copy memory to the device");
     // to test
-	cuda_ret = cudaMemcpy(d_trans_offsets, trans_offset, num_transactions * sizeof(unsigned int),
+	cuda_ret = cudaMemcpy(d_trans_offsets, trans_offset, (num_transactions + 1) * sizeof(unsigned int),
         cudaMemcpyHostToDevice);
     if(cuda_ret != cudaSuccess) FATAL("Unable to copy memory to the device");
     
@@ -210,24 +211,49 @@ int main(int argc, char* argv[])
     cuda_ret = cudaMemcpy(d_flist_key_16, flist_key_16, max_unique_items * sizeof(unsigned short),
         cudaMemcpyHostToDevice);
     if(cuda_ret != cudaSuccess) FATAL("Unable to copy memory to the device");
-    
+   
+    bool flag = false; 
     if (max_unique_items * sizeof(unsigned short) < CONST_MEM_GPU) {
         // keep the index file in constant memory
     #if TEST_MODE
         cout<<"copying to constant mem"<<endl;
     #endif
+        flag = true; 
         cuda_ret = cudaMemcpyToSymbol(dc_flist_key_16_index, flist_key_16_index, max_unique_items * sizeof(unsigned short), 0, cudaMemcpyHostToDevice);
     } else {
     #if TEST_MODE
         cout<<"copying to global mem"<<endl;
     #endif
+        flag = false; 
         cuda_ret = cudaMemcpy(d_flist_key_16_index, flist_key_16_index, max_unique_items * sizeof(unsigned short),
         cudaMemcpyHostToDevice);
     }
     if(cuda_ret != cudaSuccess) FATAL("Unable to copy memory to the device");
     cudaDeviceSynchronize();
     stopTime(&timer); cout<<elapsedTime(timer)<<endl;
-    
+
+    //now prune and sort each transaction
+    cout<<"sort_transaction:\n";
+    startTime(&timer);
+    sort_transaction(d_flist_key_16_index, d_flist, d_transactions, d_trans_offsets, num_transactions, num_items_in_transactions, max_unique_items, flag);
+    stopTime(&timer); cout<<elapsedTime(timer)<<endl;
+    #if TEST_MODE
+    cuda_ret = cudaMemcpy(transactions, d_transactions, num_items_in_transactions * sizeof(unsigned int),
+        cudaMemcpyDeviceToHost);
+    cudaDeviceSynchronize();
+    if(cuda_ret != cudaSuccess) FATAL("Unable to copy memory to the host");
+    for (int i = 0; i < num_transactions; i++){
+        int item_ends = 0;
+        if (i == (num_transactions - 1)){
+            item_ends = num_items_in_transactions;
+        }else{
+            item_ends = trans_offset[i+1];
+        }
+        for (int j = trans_offset[i]; j < item_ends; j++)
+            cout<<transactions[j]<<" ";
+        cout<<endl;
+    }
+    #endif
     // Free memory ------------------------------------------------------------
 
     cudaFree(d_trans_offsets);
