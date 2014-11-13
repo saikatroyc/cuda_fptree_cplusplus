@@ -17,6 +17,7 @@
 #include "support.h"
 #include<iostream>
 using namespace std;
+#define TRANSACTION_PER_SM 90
 __constant__ unsigned short dc_flist_key_16_index[max_unique_items];
 __global__ void histogram_kernel_naive(unsigned int* input, unsigned int* bins,
         unsigned int num_elements, unsigned int num_bins) {
@@ -93,12 +94,12 @@ __global__ void sort_transaction_kernel(unsigned short *d_flist_key_16_index, un
     unsigned int transaction_start_index = blockDim.x * blockIdx.x;
     unsigned int transaction_end_index = transaction_start_index +  blockDim.x;
     //TBD: need to pass dynamically
-    __shared__ unsigned int Ts[90][max_items_in_transaction];
+    __shared__ unsigned int Ts[TRANSACTION_PER_SM][max_items_in_transaction];
     unsigned int index = threadIdx.x;
     
     __syncthreads();
     // clear SM 
-    for (int i = 0; i < 90; i++) {
+    for (int i = 0; i < TRANSACTION_PER_SM; i++) {
         while (index < max_items_in_transaction) {
             Ts[i][index] = INVALID;
             index += blockDim.x;
@@ -122,12 +123,25 @@ __global__ void sort_transaction_kernel(unsigned short *d_flist_key_16_index, un
 
     // now that all transactions are in SM, each thread takes ownership of a row of SM
     // (i.e. one transaction per thread)
-    if (threadIdx.x < 90) {
-        for (int i =0; i < max_items_in_transaction;i++) {
+    if (threadIdx.x < TRANSACTION_PER_SM) {
+        /*for (int i =0; i < max_items_in_transaction;i++) {
             if (Ts[threadIdx.x][i] < INVALID) {
                 Ts[threadIdx.x][i]++;
             } 
-        }        
+        }*/
+        int  i =0, j = 0;
+        int swap = 0;
+        for (i= 0; i < (max_items_in_transaction - 1);i++) {
+            for (j = 0;j < (max_items_in_transaction - 1 - i);j++) {
+                if (Ts[threadIdx.x][j] > Ts[threadIdx.x][j + 1]) {
+                    // touch constant memory
+                    swap = dc_flist_key_16_index[0];
+                    swap = Ts[threadIdx.x][j];
+                    Ts[threadIdx.x][j] = Ts[threadIdx.x][j + 1];
+                    Ts[threadIdx.x][j + 1] = swap;    
+                }
+            } 
+        }  
     }
     
     __syncthreads();
@@ -157,7 +171,7 @@ void sort_transaction(unsigned short *d_flist_key_16_index, unsigned int *d_flis
     
     unsigned int bytesPerTransaction = max_items_in_transaction * sizeof(unsigned int);
     
-    block_dim.x = ((SM_PER_BLOCK / bytesPerTransaction) - 10) > 90 ? 90 : ((SM_PER_BLOCK / bytesPerTransaction) - 10);
+    block_dim.x = ((SM_PER_BLOCK / bytesPerTransaction) - 10) > TRANSACTION_PER_SM ? TRANSACTION_PER_SM : ((SM_PER_BLOCK / bytesPerTransaction) - 10);
     block_dim.y = 1;
     block_dim.y = 1;
 
