@@ -84,12 +84,17 @@ void make_flist(unsigned int *d_trans_offset, unsigned int *d_transactions, unsi
    
    
    
-#define INVALID 0XFFFFFF 
 __global__ void sort_transaction_kernel(unsigned short *d_flist_key_16_index, unsigned int *d_flist, unsigned int *d_transactions,
         unsigned int *offset_array, unsigned int num_transactions, unsigned int num_elements, unsigned int bins, bool indexFileInConstantMem) {
    
     //unsigned int transaction_index = threadIdx.x + blockDim.x * blockIdx.x;
     //unsigned int stride = blockDim.x * gridDim.x;
+    unsigned int i = 0;
+    unsigned int j = 0;
+    unsigned int swap = 0;
+    unsigned int start_offset = 0;
+    unsigned int end_offset = 0;
+    unsigned int index1 = 0;
     unsigned int transaction_start_index = blockDim.x * blockIdx.x;
     //TBD: need to pass dynamically
     __shared__ unsigned int Ts[TRANSACTION_PER_SM][max_items_in_transaction];
@@ -100,19 +105,19 @@ __global__ void sort_transaction_kernel(unsigned short *d_flist_key_16_index, un
     
     __syncthreads();
     // clear SM 
-    for (int i = 0; i < TRANSACTION_PER_SM; i++) {
+    for (i = 0; i < TRANSACTION_PER_SM; i++) {
         while (index < max_items_in_transaction) {
-            Ts[i][index] = INVALID;
+            Ts[i][index] = 0;//INVALID;
             index += blockDim.x;
         }
         __syncthreads();
     }
     // get all the transaction assigned to this block into SM
-    for (unsigned int i = transaction_start_index; i < transaction_end_index && i < num_transactions; i++) {
+    for (i = transaction_start_index; i < transaction_end_index && i < num_transactions; i++) {
         // get the ith transaction data into SM
-        int start_offset = offset_array[i];
-        int end_offset = offset_array[i+1];
-        int index1 = start_offset + threadIdx.x;
+        start_offset = offset_array[i];
+        end_offset = offset_array[i+1];
+        index1 = start_offset + threadIdx.x;
         __syncthreads();
         // threads collaborate to get the ith transaction
         while (index1 < end_offset) {
@@ -131,28 +136,33 @@ __global__ void sort_transaction_kernel(unsigned short *d_flist_key_16_index, un
                 Ts[threadIdx.x][i]++;
             }
         }*/
-        int  i =0, j = 0;
-        int swap = 0;
         for (i= 0; i < (max_items_in_transaction - 1);i++) {
             for (j = 0;j < (max_items_in_transaction - 1 - i);j++) {
-                if (Ts[threadIdx.x][j] > Ts[threadIdx.x][j + 1]) {
-                    // touch constant memory
-                    swap = dc_flist_key_16_index[0];
+                //if (Ts[threadIdx.x][j] == INVALID || Ts[threadIdx.x][j + 1] == INVALID) {
+                    // all subsequent element will be invalid
+                 //   goto endloop;
+               // }
+                if (dc_flist_key_16_index[Ts[threadIdx.x][j]] > dc_flist_key_16_index[Ts[threadIdx.x][j + 1]]) {
+                    // this means index of jth element is greater than index of j+1th element in index array,
+                    // which implies jth element has a lesser count than j+1th element.
+                    // so swap them.
+                    // this also ensures automatically pruned items (having index 0xFFFF) will get pushed back.
+                    // while making fp tree we can choose to ignore all items which have index 0xFFFF
                     swap = Ts[threadIdx.x][j];
                     Ts[threadIdx.x][j] = Ts[threadIdx.x][j + 1];
-                    Ts[threadIdx.x][j + 1] = swap;    
+                    Ts[threadIdx.x][j + 1] = swap;
                 }
             } 
-        } 
+        }
     }
-    
+//endloop:
     __syncthreads();
     // now that work is done write back results 
-    for (unsigned int i = transaction_start_index; i < transaction_end_index && i < num_transactions; i++) {
+    for (i = transaction_start_index; i < transaction_end_index && i < num_transactions; i++) {
         // get the ith transaction data from SM to global mem
-        int start_offset = offset_array[i];
-        int end_offset = offset_array[i+1];
-        int index1 = start_offset + threadIdx.x;
+        start_offset = offset_array[i];
+        end_offset = offset_array[i+1];
+        index1 = start_offset + threadIdx.x;
         __syncthreads();
         while (index1 < end_offset) {
             d_transactions[index1] = Ts[i - transaction_start_index][index1 - start_offset];        
@@ -160,7 +170,6 @@ __global__ void sort_transaction_kernel(unsigned short *d_flist_key_16_index, un
         }
         __syncthreads();
     }
-
     transaction_start_index += (blockDim.x * gridDim.x);
     }
 } 
