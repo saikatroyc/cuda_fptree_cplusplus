@@ -29,7 +29,7 @@ int main(int argc, char* argv[])
     unsigned int *transactions = NULL;
     unsigned int *trans_offset = NULL;
     unsigned int *flist = NULL;
-    unsigned short *flist_key_16 = NULL;
+    //unsigned short *flist_key_16 = NULL;
     unsigned short *flist_key_16_index = NULL;
 
     unsigned int element_id = 0;
@@ -38,7 +38,7 @@ int main(int argc, char* argv[])
     transactions = (unsigned int *) malloc(max_num_of_transaction * max_items_in_transaction * sizeof(unsigned int));
     trans_offset = (unsigned int *) malloc((max_num_of_transaction + 1) * sizeof(unsigned int));
     flist = (unsigned int *) malloc(max_unique_items * sizeof(unsigned int));
-    flist_key_16 = (unsigned short*) malloc(max_unique_items * sizeof(unsigned short));
+    //flist_key_16 = (unsigned short*) malloc(max_unique_items * sizeof(unsigned short));
     flist_key_16_index = (unsigned short*) malloc(max_unique_items * sizeof(unsigned short));
 
     memset(flist_key_16_index, 0xFFFF, max_unique_items * sizeof(unsigned short));
@@ -168,11 +168,11 @@ int main(int argc, char* argv[])
     }
     // print the vector
     #if TEST_MODE
-    cout<<"vector length:"<<v.size()<<endl;
+    /*cout<<"vector length:"<<v.size()<<endl;
     vector<pair<unsigned short , unsigned int> >::iterator it;
     for (it = v.begin(); it != v.end();it++) {
         cout<<"(key,value)"<<it->first<<","<<it->second<<endl;    
-    }
+    }*/
     #endif
     std::sort(v.begin(),v.end(), pair_compare);
     cudaDeviceSynchronize();
@@ -184,11 +184,8 @@ int main(int argc, char* argv[])
     int i = 0;
     for (itr = v.rbegin(); itr != v.rend();itr++) {
         flist[i] = itr->second;
-        flist_key_16[i] = itr->first;
+        //flist_key_16[i] = itr->first;
         flist_key_16_index[itr->first] = i;
-    #if TEST_MODE
-        cout<<"(count,key):"<<flist[i]<<","<<flist_key_16[i]<<endl;
-    #endif
         i++;
     }
 
@@ -208,9 +205,9 @@ int main(int argc, char* argv[])
         cudaMemcpyHostToDevice);
     if(cuda_ret != cudaSuccess) FATAL("Unable to copy memory to the device");
     
-    cuda_ret = cudaMemcpy(d_flist_key_16, flist_key_16, max_unique_items * sizeof(unsigned short),
-        cudaMemcpyHostToDevice);
-    if(cuda_ret != cudaSuccess) FATAL("Unable to copy memory to the device");
+    //cuda_ret = cudaMemcpy(d_flist_key_16, flist_key_16, max_unique_items * sizeof(unsigned short),
+    //    cudaMemcpyHostToDevice);
+    //if(cuda_ret != cudaSuccess) FATAL("Unable to copy memory to the device");
    
     bool flag = false; 
     if (max_unique_items * sizeof(unsigned short) < CONST_MEM_GPU) {
@@ -265,7 +262,7 @@ int main(int argc, char* argv[])
     free(trans_offset);
     free(transactions);
     free(flist);
-    free(flist_key_16);
+    //free(flist_key_16);
     free(flist_key_16_index);
     cout<<"program end";
 }
